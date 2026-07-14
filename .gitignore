@@ -1,0 +1,39 @@
+# MDK-ARM / Keil build output
+MDK-ARM/ADHD/
+MDK-ARM/*.lst
+MDK-ARM/JLinkLog.txt
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+
+# Common build artifacts
+*.o
+*.d
+*.crf
+*.axf
+*.map
+*.lnp
+*.htm
+*.build_log.htm
+*.dep
+*.bak
+*.ddl
+*.elf
+*.bin
+*.hex.bak
+
+# Editor and OS files
+.git-backups/
+.agents/
+.reasonix/
+.codex/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Desktop.ini
+Thumbs.db
+
+# STM32CubeIDE
+Debug/
+.settings/
