@@ -85,7 +85,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  //这是要提交git的代码
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
