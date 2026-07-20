@@ -36,7 +36,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SIGNAL_SAMPLE_AUTORELOAD       (24000U - 1U)
+#define IMPEDANCE_SAMPLE_AUTORELOAD    (72000U - 1U)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,17 +48,155 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static WorkMode applied_mode = MODE_SIGNAL;
+static uint8_t impedance_pwm_running = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+static void APP_ApplyWorkMode(WorkMode mode);
+static void APP_UpdateAcquisitionHardware(void);
+static void APP_StartImpedanceExcitation(void);
+static void APP_StopImpedanceExcitation(void);
+static void APP_SynchronizeStreamStart(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void APP_StartImpedanceExcitation(void)
+{
+  if(impedance_pwm_running == 0U)
+  {
+    __HAL_TIM_SET_COUNTER(&htim15, 0U);
+    __HAL_TIM_CLEAR_FLAG(&htim15, TIM_FLAG_UPDATE);
+
+    if(HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    if(HAL_TIMEx_PWMN_Start(&htim15, TIM_CHANNEL_1) != HAL_OK)
+    {
+      (void)HAL_TIM_PWM_Stop(&htim15, TIM_CHANNEL_1);
+      Error_Handler();
+    }
+    impedance_pwm_running = 1U;
+  }
+}
+
+static void APP_StopImpedanceExcitation(void)
+{
+  if(impedance_pwm_running != 0U)
+  {
+    if(HAL_TIMEx_PWMN_Stop(&htim15, TIM_CHANNEL_1) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    if(HAL_TIM_PWM_Stop(&htim15, TIM_CHANNEL_1) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    impedance_pwm_running = 0U;
+  }
+}
+
+static void APP_ApplyWorkMode(WorkMode mode)
+{
+  uint32_t sample_autoreload;
+  uint32_t sdadc_conf_index;
+
+  if(HAL_TIM_Base_Stop_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if(mode == MODE_IMPEDANCE)
+  {
+    sample_autoreload = IMPEDANCE_SAMPLE_AUTORELOAD;
+    sdadc_conf_index = SDADC_CONF_INDEX_1;
+    HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_RESET);
+  }
+  else
+  {
+    sample_autoreload = SIGNAL_SAMPLE_AUTORELOAD;
+    sdadc_conf_index = SDADC_CONF_INDEX_0;
+    HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_SET);
+  }
+
+  if(SDADC_SwitchInputMode(sdadc_conf_index) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  __HAL_TIM_SET_AUTORELOAD(&htim2, sample_autoreload);
+  __HAL_TIM_SET_COUNTER(&htim2, 0U);
+  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+
+  if(HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  applied_mode = mode;
+}
+
+static void APP_SynchronizeStreamStart(void)
+{
+  uint32_t primask;
+
+  if(HAL_TIM_Base_Stop_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  APP_StopImpedanceExcitation();
+
+  __HAL_TIM_SET_COUNTER(&htim15, 0U);
+  __HAL_TIM_SET_COUNTER(&htim2, 0U);
+  __HAL_TIM_CLEAR_FLAG(&htim15, TIM_FLAG_UPDATE);
+  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+
+  if(current_mode == MODE_IMPEDANCE)
+  {
+    APP_StartImpedanceExcitation();
+  }
+  if(HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* 最后进入流状态，保证 TIM2 不会在激励启动前写入首个样本。 */
+  comm_state = STATE_STREAMING;
+  __set_PRIMASK(primask);
+}
+
+static void APP_UpdateAcquisitionHardware(void)
+{
+  uint8_t excitation_required;
+
+  if(current_mode != applied_mode)
+  {
+    APP_StopImpedanceExcitation();
+    APP_ApplyWorkMode(current_mode);
+  }
+
+  if(comm_state == STATE_START_STREAMING)
+  {
+    APP_SynchronizeStreamStart();
+    return;
+  }
+
+  excitation_required = ((current_mode == MODE_IMPEDANCE) &&
+                         (comm_state == STATE_STREAMING)) ? 1U : 0U;
+
+  if((excitation_required != 0U) && (impedance_pwm_running == 0U))
+  {
+    APP_StartImpedanceExcitation();
+  }
+  else if(excitation_required == 0U)
+  {
+    APP_StopImpedanceExcitation();
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -96,47 +235,47 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-	//开启TIM15的channel1和channelN1，形成频率为10hz的互补pwm波
-	HAL_TIM_PWM_Start(&htim15,TIM_CHANNEL_1);
-	HAL_TIMEx_PWMN_Start(&htim15,TIM_CHANNEL_1);
-	//开启增益，默认为高
-	HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port,Boost_Ctl_Pin,GPIO_PIN_SET);
-	//开启继电器供电
-	HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port,Relay_Ctl_Pin,GPIO_PIN_SET);
-	
-	HAL_SDADC_CalibrationStart(&hsdadc3,SDADC_CALIBRATION_SEQ_1);//校准
-	HAL_SDADC_PollForCalibEvent(&hsdadc3,HAL_MAX_DELAY);//等待校准完成
-	
-	// 启动 SDADC3 首次转换（后续由 TIM2 ISR 逐次触发）
-	HAL_SDADC_Start(&hsdadc3);
-	
-	// 启动定时器中断
-	HAL_TIM_Base_Start_IT(&htim2);
-	HAL_TIM_Base_Start_IT(&htim3);
+  /* 默认信号模式使用高增益；继电器保持供电。 */
+  HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port, Relay_Ctl_Pin, GPIO_PIN_SET);
+
+  /* 配置 0/1 分别用于信号单端输入和阻抗差分输入，因此校准两组配置。 */
+  if(HAL_SDADC_CalibrationStart(&hsdadc3, SDADC_CALIBRATION_SEQ_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if(HAL_SDADC_PollForCalibEvent(&hsdadc3, HAL_MAX_DELAY) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if(HAL_SDADC_Start(&hsdadc3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* TIM15 只在阻抗流模式开启；TIM2 默认按信号模式采样。 */
+  if(HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-		/* ---- 接收数据处理 ---- */
-		if(hid_cmd_received == 1)
-		{
-			hid_cmd_received = 0;
-			APP_DeviceCustomHIDProcessReceivedReport(hid_out_buffer, 64);
-		}
-		
-		/* ---- 帧发送 ---- */
-		if(timer_fired)
-		{
-			timer_fired = 0;
-			if(comm_state == STATE_STREAMING)
-			{
-				USB_BuildAndSendDataFrame();
-			}
-			// 翻转LED指示发送活动
-			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-		}
+    while(APP_DeviceCustomHIDProcessNextReport() != 0U)
+    {
+      /* 一次处理完队列中的报告，保证 0xF8 先于紧随其后的 0x80 生效。 */
+    }
+
+    APP_UpdateAcquisitionHardware();
+
+    if((comm_state == STATE_STREAMING) &&
+       (USB_BuildAndSendDataFrame() != 0U))
+    {
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -194,30 +333,19 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-/* TIM2 中断: ADC 采样 (3kHz = 333μs 周期)   */
-/* TIM3 中断: 帧发送触发 (100Hz = 10ms 周期) */
+/* TIM2: 信号模式 3kHz，阻抗模式 1kHz；每 30 点形成一帧。 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim->Instance == TIM2)
-	{
-		/* 信号检测模式: 读 SDADC3 连续转换值写入缓冲区 */
-		if(comm_state == STATE_STREAMING)
-		{
-			uint16_t raw = (uint16_t)HAL_SDADC_GetValue(&hsdadc3);
-			int16_t adc_val = (int16_t)raw;
-			adc_ring[adc_ring_idx] = (uint16_t)((int32_t)adc_val+32768);
-			adc_ring_idx++;
-			if(adc_ring_idx >= ADC_RING_SIZE)
-			{
-				adc_ring_idx = 0;
-			}
-		}
-	}
-	else if(htim->Instance == TIM3)
-	{
-		/* 帧发送定时 (10ms 周期) */
-		timer_fired  = 1;
-	}
+  if(htim->Instance == TIM2)
+  {
+    if(comm_state == STATE_STREAMING)
+    {
+      int16_t adc_value;
+
+      adc_value = (int16_t)HAL_SDADC_GetValue(&hsdadc3);
+      APP_PushADCSample((uint16_t)((int32_t)adc_value + 32768));
+    }
+  }
 }
 /* USER CODE END 4 */
 

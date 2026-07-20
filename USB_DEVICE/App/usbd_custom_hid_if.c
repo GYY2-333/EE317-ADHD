@@ -23,7 +23,6 @@
 
 /* USER CODE BEGIN INCLUDE */
 #include "app_hid_handler.h"
-#include <string.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -175,6 +174,7 @@ USBD_CUSTOM_HID_ItfTypeDef USBD_CustomHID_fops_FS =
 static int8_t CUSTOM_HID_Init_FS(void)
 {
   /* USER CODE BEGIN 4 */
+  APP_DeviceCustomHIDReset();
   return (USBD_OK);
   /* USER CODE END 4 */
 }
@@ -186,6 +186,7 @@ static int8_t CUSTOM_HID_Init_FS(void)
 static int8_t CUSTOM_HID_DeInit_FS(void)
 {
   /* USER CODE BEGIN 5 */
+  APP_DeviceCustomHIDReset();
   return (USBD_OK);
   /* USER CODE END 5 */
 }
@@ -201,9 +202,11 @@ static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state)
   /* USER CODE BEGIN 6 */
 	USBD_CUSTOM_HID_HandleTypeDef *hhid;
 	hhid = (USBD_CUSTOM_HID_HandleTypeDef *)hUsbDeviceFS.pClassData;
-	/* 拷贝收到的数据到 hid_out_buffer，通知 main 循环处理 */
-	memcpy(hid_out_buffer, hhid->Report_buf, 64);
-	hid_cmd_received = 1;
+	/* 将完整报告放入队列，避免连续的 0xF8/0x80 命令互相覆盖。 */
+	if(hhid != NULL)
+	{
+		(void)APP_DeviceCustomHIDQueueReceivedReport(hhid->Report_buf, 64U);
+	}
 	return (USBD_OK);
   /* USER CODE END 6 */
 }

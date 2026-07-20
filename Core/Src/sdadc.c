@@ -150,12 +150,33 @@ void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle)
 
 /* ---- SDADC 输入模式切换 ---- */
 /* conf_index: SDADC_CONF_INDEX_0 = 单端(信号检测), SDADC_CONF_INDEX_1 = 差分(阻抗) */
-void SDADC_SwitchInputMode(uint8_t conf_index)
+HAL_StatusTypeDef SDADC_SwitchInputMode(uint32_t conf_index)
 {
-    HAL_SDADC_Stop(&hsdadc3);                                          /* 停止当前转换 */
-    HAL_SDADC_AssociateChannelConfig(&hsdadc3, SDADC_CHANNEL_8, conf_index); /* 换绑定 */
-    HAL_SDADC_ConfigChannel(&hsdadc3, SDADC_CHANNEL_8, SDADC_CONTINUOUS_CONV_ON);
-    HAL_SDADC_Start(&hsdadc3);                                        /* 重新启动 */
+    HAL_StatusTypeDef status;
+
+    status = HAL_SDADC_Stop(&hsdadc3);
+    if(status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = HAL_SDADC_AssociateChannelConfig(&hsdadc3,
+                                              SDADC_CHANNEL_8,
+                                              conf_index);
+    if(status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = HAL_SDADC_ConfigChannel(&hsdadc3,
+                                     SDADC_CHANNEL_8,
+                                     SDADC_CONTINUOUS_CONV_ON);
+    if(status != HAL_OK)
+    {
+        return status;
+    }
+
+    return HAL_SDADC_Start(&hsdadc3);
 }
 
 /* USER CODE END 1 */

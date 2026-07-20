@@ -41,7 +41,7 @@ extern SDADC_HandleTypeDef hsdadc3;
 void MX_SDADC3_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-void SDADC_SwitchInputMode(uint8_t conf_index);  /* 0=单端(信号), 1=差分(阻抗) */
+HAL_StatusTypeDef SDADC_SwitchInputMode(uint32_t conf_index);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
