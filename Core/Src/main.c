@@ -103,7 +103,6 @@ static void APP_StopImpedanceExcitation(void)
 static void APP_ApplyWorkMode(WorkMode mode)
 {
   uint32_t sample_autoreload;
-  uint32_t sdadc_conf_index;
 
   if(HAL_TIM_Base_Stop_IT(&htim2) != HAL_OK)
   {
@@ -112,19 +111,12 @@ static void APP_ApplyWorkMode(WorkMode mode)
   if(mode == MODE_IMPEDANCE)
   {
     sample_autoreload = IMPEDANCE_SAMPLE_AUTORELOAD;
-    sdadc_conf_index = SDADC_CONF_INDEX_1;
     HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_RESET);
   }
   else
   {
     sample_autoreload = SIGNAL_SAMPLE_AUTORELOAD;
-    sdadc_conf_index = SDADC_CONF_INDEX_0;
     HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_SET);
-  }
-
-  if(SDADC_SwitchInputMode(sdadc_conf_index) != HAL_OK)
-  {
-    Error_Handler();
   }
 
   __HAL_TIM_SET_AUTORELOAD(&htim2, sample_autoreload);
@@ -235,11 +227,11 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  /* 默认信号模式使用高增益；继电器保持供电。 */
+  /* USB枚举后保持模拟电源关闭；收到上位机有效命令后再由协议层吸合继电器。 */
   HAL_GPIO_WritePin(Boost_Ctl_GPIO_Port, Boost_Ctl_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port, Relay_Ctl_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port, Relay_Ctl_Pin, GPIO_PIN_RESET);
 
-  /* 配置 0/1 分别用于信号单端输入和阻抗差分输入，因此校准两组配置。 */
+  /* CONF0为单端零参考，CONF1为差分输入；启动时校准两套配置。 */
   if(HAL_SDADC_CalibrationStart(&hsdadc3, SDADC_CALIBRATION_SEQ_2) != HAL_OK)
   {
     Error_Handler();
@@ -252,7 +244,6 @@ int main(void)
   {
     Error_Handler();
   }
-
   /* TIM15 只在阻抗流模式开启；TIM2 默认按信号模式采样。 */
   if(HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
@@ -272,9 +263,11 @@ int main(void)
     APP_UpdateAcquisitionHardware();
 
     if((comm_state == STATE_STREAMING) &&
-       (USB_BuildAndSendDataFrame() != 0U))
+    (USB_BuildAndSendDataFrame() != 0U))
     {
-      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+			static uint8_t LED_Count = 0;
+			if(LED_Count==0)HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+			LED_Count--;
     }
     /* USER CODE END WHILE */
 
@@ -332,7 +325,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
 /* TIM2: 信号模式 3kHz，阻抗模式 1kHz；每 30 点形成一帧。 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -343,7 +335,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       int16_t adc_value;
 
       adc_value = (int16_t)HAL_SDADC_GetValue(&hsdadc3);
-      APP_PushADCSample((uint16_t)((int32_t)adc_value + 32768));
+      APP_PushADCSample(((uint16_t)((int32_t)adc_value+32768)));
     }
   }
 }

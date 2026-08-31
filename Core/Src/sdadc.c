@@ -74,6 +74,9 @@ void MX_SDADC3_Init(void)
   /** Set parameters for SDADC configuration 1 Register
   */
   ConfParamStruct.InputMode = SDADC_INPUT_MODE_DIFF;
+  ConfParamStruct.Gain = SDADC_GAIN_1_2;
+  ConfParamStruct.CommonMode = SDADC_COMMON_MODE_VSSA;
+  ConfParamStruct.Offset = 0;
   if (HAL_SDADC_PrepareChannelConfig(&hsdadc3, SDADC_CONF_INDEX_1, &ConfParamStruct) != HAL_OK)
   {
     Error_Handler();
@@ -103,6 +106,13 @@ void HAL_SDADC_MspInit(SDADC_HandleTypeDef* sdadcHandle)
   {
   /* USER CODE BEGIN SDADC3_MspInit 0 */
 
+    /*
+     * SDADC1->CR1 holds the reference-voltage selection shared by all
+     * SDADC instances.  HAL_SDADC_Init() therefore accesses SDADC1 even
+     * when only SDADC3 is used; keep its APB clock enabled for that access.
+     */
+    __HAL_RCC_SDADC1_CLK_ENABLE();
+
   /* USER CODE END SDADC3_MspInit 0 */
     /* SDADC3 clock enable */
     __HAL_RCC_SDADC3_CLK_ENABLE();
@@ -110,7 +120,7 @@ void HAL_SDADC_MspInit(SDADC_HandleTypeDef* sdadcHandle)
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**SDADC3 GPIO Configuration
     PB14     ------> SDADC3_AIN8P
-    PB15     ------> SDADC3_AIN7P
+    PB15     ------> SDADC3_AIN8M
     */
     GPIO_InitStruct.Pin = GPIO_PIN_14|GPIO_PIN_15;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -130,13 +140,16 @@ void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle)
   {
   /* USER CODE BEGIN SDADC3_MspDeInit 0 */
 
+    /* Paired with the shared-reference clock enable in MspInit. */
+    __HAL_RCC_SDADC1_CLK_DISABLE();
+
   /* USER CODE END SDADC3_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_SDADC3_CLK_DISABLE();
 
     /**SDADC3 GPIO Configuration
     PB14     ------> SDADC3_AIN8P
-    PB15     ------> SDADC3_AIN7P
+    PB15     ------> SDADC3_AIN8M
     */
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_14|GPIO_PIN_15);
 
@@ -148,35 +161,44 @@ void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle)
 
 /* USER CODE BEGIN 1 */
 
-/* ---- SDADC 输入模式切换 ---- */
-/* conf_index: SDADC_CONF_INDEX_0 = 单端(信号检测), SDADC_CONF_INDEX_1 = 差分(阻抗) */
+/*
+ * CONF0: PB14 single-ended zero-reference input (default).
+ * CONF1: PB14/PB15 differential input.
+ * Stop the sampling timer before calling this function while streaming.
+ */
 HAL_StatusTypeDef SDADC_SwitchInputMode(uint32_t conf_index)
 {
-    HAL_StatusTypeDef status;
+  HAL_StatusTypeDef status;
 
-    status = HAL_SDADC_Stop(&hsdadc3);
-    if(status != HAL_OK)
-    {
-        return status;
-    }
+  if((conf_index != SDADC_CONF_SINGLE_ENDED) &&
+     (conf_index != SDADC_CONF_DIFFERENTIAL))
+  {
+    return HAL_ERROR;
+  }
 
-    status = HAL_SDADC_AssociateChannelConfig(&hsdadc3,
-                                              SDADC_CHANNEL_8,
-                                              conf_index);
-    if(status != HAL_OK)
-    {
-        return status;
-    }
+  status = HAL_SDADC_Stop(&hsdadc3);
+  if(status != HAL_OK)
+  {
+    return status;
+  }
 
-    status = HAL_SDADC_ConfigChannel(&hsdadc3,
-                                     SDADC_CHANNEL_8,
-                                     SDADC_CONTINUOUS_CONV_ON);
-    if(status != HAL_OK)
-    {
-        return status;
-    }
+  status = HAL_SDADC_AssociateChannelConfig(&hsdadc3,
+                                             SDADC_CHANNEL_8,
+                                             conf_index);
+  if(status != HAL_OK)
+  {
+    return status;
+  }
 
-    return HAL_SDADC_Start(&hsdadc3);
+  status = HAL_SDADC_ConfigChannel(&hsdadc3,
+                                    SDADC_CHANNEL_8,
+                                    SDADC_CONTINUOUS_CONV_ON);
+  if(status != HAL_OK)
+  {
+    return status;
+  }
+
+  return HAL_SDADC_Start(&hsdadc3);
 }
 
 /* USER CODE END 1 */

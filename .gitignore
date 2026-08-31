@@ -4,6 +4,7 @@ MDK-ARM/*.lst
 MDK-ARM/JLinkLog.txt
 MDK-ARM/*.uvguix.*
 MDK-ARM/*.uvoptx
+MDK-ARM/*.log
 
 # Common build artifacts
 *.o

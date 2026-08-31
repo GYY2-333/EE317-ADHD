@@ -35,7 +35,8 @@ extern "C" {
 extern SDADC_HandleTypeDef hsdadc3;
 
 /* USER CODE BEGIN Private defines */
-
+#define SDADC_CONF_SINGLE_ENDED    SDADC_CONF_INDEX_0
+#define SDADC_CONF_DIFFERENTIAL    SDADC_CONF_INDEX_1
 /* USER CODE END Private defines */
 
 void MX_SDADC3_Init(void);

@@ -1,5 +1,6 @@
 #include "app_hid_handler.h"
 #include "main.h"
+#include "sdadc.h"
 #include "usbd_customhid.h"
 #include <stdint.h>
 #include <string.h>
@@ -44,8 +45,50 @@ static volatile uint8_t frame_send_pending = 0U;
 static uint8_t frame_seq = 0U;
 static uint8_t type_id = 0x80U;
 static uint16_t tick_count = 0U;
+static uint8_t analog_power_enabled = 0U;
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
+
+static void APP_SetAnalogPower(uint8_t enabled)
+{
+    if(enabled == 0U)
+    {
+        HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port, Relay_Ctl_Pin, GPIO_PIN_RESET);
+        analog_power_enabled = 0U;
+        return;
+    }
+
+    if(analog_power_enabled != 0U)
+    {
+        return;
+    }
+
+    /*
+     * 枚举期间模拟部分未供电，不能沿用此时得到的SDADC工作状态。
+     * 先停止转换，再给模拟部分上电；待工作点稳定后重新校准并启动。
+     */
+    if(HAL_SDADC_Stop(&hsdadc3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    HAL_GPIO_WritePin(Relay_Ctl_GPIO_Port, Relay_Ctl_Pin, GPIO_PIN_SET);
+    HAL_Delay(200U);
+
+    /* 模拟部分稳定后重新校准CONF0单端和CONF1差分两套配置。 */
+    if(HAL_SDADC_CalibrationStart(&hsdadc3, SDADC_CALIBRATION_SEQ_2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if(HAL_SDADC_PollForCalibEvent(&hsdadc3, HAL_MAX_DELAY) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if(HAL_SDADC_Start(&hsdadc3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    analog_power_enabled = 1U;
+}
 
 /* 阻抗检测握手应答包：0xF8 后收到 0x80 时发送。 */
 const uint8_t handshake_response[HID_REPORT_SIZE] = {
@@ -129,6 +172,8 @@ void APP_DeviceCustomHIDReset(void)
 
     __set_PRIMASK(primask);
 
+    /* 仅枚举或USB断开时释放继电器，让USB电源优先给锂电池充电。 */
+    APP_SetAnalogPower(0U);
     ResetADCBuffers();
     ResetFrameCounters();
 }
@@ -328,6 +373,8 @@ void APP_DeviceCustomHIDProcessReceivedReport(const uint8_t *report,
      */
     if(cmd == 0xF8U)
     {
+        /* 收到上位机的有效模式命令，确认应用已开始通信。 */
+        APP_SetAnalogPower(1U);
         current_mode = (current_mode == MODE_IMPEDANCE)
                      ? MODE_SIGNAL
                      : MODE_IMPEDANCE;
@@ -346,6 +393,8 @@ void APP_DeviceCustomHIDProcessReceivedReport(const uint8_t *report,
         case STATE_WAIT_HANDSHAKE:
             if(cmd == 0x80U)
             {
+                /* HID枚举本身不供电；首个有效握手到达后才给模拟部分供电。 */
+                APP_SetAnalogPower(1U);
                 if(USB_SendHandshakeResponse() != 0U)
                 {
                     comm_state = STATE_SEND_RESPONSE;
