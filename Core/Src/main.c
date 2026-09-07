@@ -335,7 +335,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       int16_t adc_value;
 
       adc_value = (int16_t)HAL_SDADC_GetValue(&hsdadc3);
-      APP_PushADCSample(((uint16_t)((int32_t)adc_value+32768)));
+      APP_PushADCSample((uint16_t)(((int32_t)adc_value+32768)*0.95));
     }
   }
 }
