@@ -38,3 +38,21 @@ Thumbs.db
 # STM32CubeIDE
 Debug/
 .settings/
+
+# STM32CubeMX generated metadata
+.mxproject
+
+# Keil generated and machine-specific metadata
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+MDK-ARM/EventRecorderStub.scvd
+MDK-ARM/JLinkSettings.ini
+MDK-ARM/*.uvgui.*
+
+# Additional build and temporary files
+*.hex
+*.tmp
+*.orig
+*.rej
+*.user
+.vs/
