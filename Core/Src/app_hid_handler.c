@@ -12,19 +12,6 @@
 #define ADC_HISTORY_SIZE        128U
 #define ADC_HISTORY_MASK        (ADC_HISTORY_SIZE - 1U)
 #define HID_COMMAND_QUEUE_DEPTH   4U
-#define SIGNAL_CHANNEL_COUNT      6U
-
-/*
- * 信号模式通道1（上位机CH0）数字量校准。
- * 依据2026-09-12的三组STM32数据和两组原设备数据：
- *   输入中心约30419码，原设备通道1中心约39392码；
- *   Vpp由约6454码放大到约7918码，比例约1.2268。
- * 输入sample已经包含main.c中原有的0.95比例修正。
- */
-#define SIGNAL_CH1_INPUT_CENTER       30419L
-#define SIGNAL_CH1_TARGET_CENTER      39392L
-#define SIGNAL_CH1_GAIN_NUMERATOR     12268L
-#define SIGNAL_CH1_GAIN_DENOMINATOR   10000L
 
 /* ========== 通信状态 ========== */
 volatile CommState comm_state = STATE_WAIT_HANDSHAKE;
@@ -61,40 +48,6 @@ static uint16_t tick_count = 0U;
 static uint8_t analog_power_enabled = 0U;
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
-
-static uint16_t APP_CalibrateSignalChannel1(uint16_t sample)
-{
-    int32_t delta;
-    int32_t scaled_delta;
-    int32_t calibrated;
-
-    delta = (int32_t)sample - SIGNAL_CH1_INPUT_CENTER;
-
-    /* 对正负数分别补半个分母，避免整数除法产生方向性截断误差。 */
-    if(delta >= 0)
-    {
-        scaled_delta = (delta * SIGNAL_CH1_GAIN_NUMERATOR
-                      + SIGNAL_CH1_GAIN_DENOMINATOR / 2L)
-                     / SIGNAL_CH1_GAIN_DENOMINATOR;
-    }
-    else
-    {
-        scaled_delta = (delta * SIGNAL_CH1_GAIN_NUMERATOR
-                      - SIGNAL_CH1_GAIN_DENOMINATOR / 2L)
-                     / SIGNAL_CH1_GAIN_DENOMINATOR;
-    }
-
-    calibrated = SIGNAL_CH1_TARGET_CENTER + scaled_delta;
-    if(calibrated < 0L)
-    {
-        return 0U;
-    }
-    if(calibrated > 65535L)
-    {
-        return 65535U;
-    }
-    return (uint16_t)calibrated;
-}
 
 static void APP_SetAnalogPower(uint8_t enabled)
 {
@@ -315,14 +268,6 @@ void APP_PushADCSample(uint16_t sample)
         past = (uint8_t)(history_idx - channel - delay);
         sample = adc_history[past & ADC_HISTORY_MASK];
         history_idx++;
-    }
-    else
-    {
-        channel = (uint8_t)(adc_write_pos % SIGNAL_CHANNEL_COUNT);
-        if(channel == 0U)
-        {
-            sample = APP_CalibrateSignalChannel1(sample);
-        }
     }
 
     adc_ping_pong[adc_write_pos] = sample;
