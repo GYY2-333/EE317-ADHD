@@ -40,6 +40,8 @@ static const uint8_t impedance_delay_samples[IMPEDANCE_CHANNEL_COUNT] = {
     0U, 13U, 25U, 38U, 50U, 63U
 };
 
+
+
 /* ========== USB 帧状态和计数器 ========== */
 static volatile uint8_t frame_send_pending = 0U;
 static uint8_t frame_seq = 0U;
@@ -309,6 +311,51 @@ static uint8_t CopyReadyADCFrame(void)
     return 1U;
 }
 
+/* Signal-only affine calibration, CH0..CH5 interleaved in each frame.
+ * Sources: new 32 captures (2026-09-22) and original-device captures
+ * (2026-09-12), two 1250-sample CSVs per device, same input.
+ * gain = mean(reference max-min) / mean(source max-min).
+ * offset = mean(reference DC) - gain * mean(source DC).
+ * Q16 coefficients preserve input amplitude changes; no automatic gain.
+ * Apply once to the copied frame, outside the sampling interrupt.
+ */
+static void CalibrateSignalFrame(void)
+{
+    static const int32_t gain_q16[6] = {
+        76751, 76681, 67426, 31789, 46187, 67598
+    };
+    static const int32_t offset_q16[6] = {
+        123902627, 126215171, 187434152,
+        83104234, 125750017, 182691241
+    };
+    uint8_t i;
+
+    for(i = 0U; i < SAMPLES_PER_FRAME; i++)
+    {
+        uint8_t channel = (uint8_t)(i % 6U);
+        uint8_t pos = (uint8_t)(4U + 2U * i);
+        uint16_t raw = (uint16_t)((uint16_t)hid_in_buffer[pos] |
+                                 ((uint16_t)hid_in_buffer[pos + 1U] << 8));
+        int64_t value = (int64_t)raw * gain_q16[channel] + offset_q16[channel];
+        uint16_t calibrated;
+
+        if(value <= 0)
+        {
+            calibrated = 0U;
+        }
+        else if(value >= (int64_t)65535 * 65536)
+        {
+            calibrated = 65535U;
+        }
+        else
+        {
+            calibrated = (uint16_t)((value + 32768) / 65536);
+        }
+        hid_in_buffer[pos] = (uint8_t)calibrated;
+        hid_in_buffer[pos + 1U] = (uint8_t)(calibrated >> 8);
+    }
+}
+
 uint8_t USB_BuildAndSendDataFrame(void)
 {
     if(hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED)
@@ -321,6 +368,11 @@ uint8_t USB_BuildAndSendDataFrame(void)
         if(CopyReadyADCFrame() == 0U)
         {
             return 0U;
+        }
+
+        if(current_mode == MODE_SIGNAL)
+        {
+            CalibrateSignalFrame();
         }
 
         hid_in_buffer[0] = frame_seq;

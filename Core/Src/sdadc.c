@@ -74,9 +74,6 @@ void MX_SDADC3_Init(void)
   /** Set parameters for SDADC configuration 1 Register
   */
   ConfParamStruct.InputMode = SDADC_INPUT_MODE_DIFF;
-  ConfParamStruct.Gain = SDADC_GAIN_1_2;
-  ConfParamStruct.CommonMode = SDADC_COMMON_MODE_VSSA;
-  ConfParamStruct.Offset = 0;
   if (HAL_SDADC_PrepareChannelConfig(&hsdadc3, SDADC_CONF_INDEX_1, &ConfParamStruct) != HAL_OK)
   {
     Error_Handler();
